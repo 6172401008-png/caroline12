@@ -1,0 +1,137 @@
+from machine import Pin, PWM
+from hcsr04 import HCSR04
+from time import sleep
+import bluetooth
+
+# =========================
+# LED
+# =========================
+led = Pin(2, Pin.OUT)
+led.off()
+
+# =========================
+# SENSOR JARAK
+# =========================
+sensor = HCSR04(trigger_pin=4, echo_pin=5)
+
+# =========================
+# SERVO
+# =========================
+servo = PWM(Pin(26), freq=50)
+
+def servo_angle(angle):
+    duty = int((angle / 180) * 75 + 40)
+    servo.duty(duty)
+
+# =========================
+# BLE
+# =========================
+ble = bluetooth.BLE()
+ble.active(True)
+
+UART_SERVICE = bluetooth.UUID("6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
+TX_CHAR = bluetooth.UUID("6E400002-B5A3-F393-E0A9-E50E24DCCA9E")
+RX_CHAR = bluetooth.UUID("6E400003-B5A3-F393-E0A9-E50E24DCCA9E")
+
+services = (
+    UART_SERVICE,
+    (
+        (TX_CHAR, bluetooth.FLAG_READ | bluetooth.FLAG_NOTIFY),
+        (RX_CHAR, bluetooth.FLAG_WRITE),
+    ),
+)
+
+((tx_handle, rx_handle),) = ble.gatts_register_services([services])
+
+name = "ESP32_Caroline"
+
+ble.gap_advertise(
+    100000,
+    b"\x02\x01\x06\x03\x03\xaa\xfe"
+    + bytes([len(name) + 1, 0x09])
+    + name.encode()
+)
+
+print("BLE aktif")
+print("Nama BLE:", name)
+
+conn_handle = None
+
+# =========================
+# BLE EVENT
+# =========================
+def ble_irq(event, data):
+    global conn_handle
+
+    if event == 1:
+        conn_handle = data[0]
+        print("BLE Terhubung")
+
+    elif event == 2:
+        conn_handle = None
+        print("BLE Terputus")
+
+        ble.gap_advertise(
+            100000,
+            b"\x02\x01\x06\x03\x03\xaa\xfe"
+            + bytes([len(name) + 1, 0x09])
+            + name.encode()
+        )
+
+    elif event == 3:
+        handle = data[1]
+
+        if handle == rx_handle:
+            incoming = ble.gatts_read(rx_handle)
+            command = incoming.decode().strip().lower()
+
+            print("Perintah:", command)
+
+            if command == "on":
+                led.on()
+
+                if conn_handle is not None:
+                    ble.gatts_notify(conn_handle, tx_handle, b"LED ON")
+
+            elif command == "off":
+                led.off()
+
+                if conn_handle is not None:
+                    ble.gatts_notify(conn_handle, tx_handle, b"LED OFF")
+
+ble.irq(ble_irq)
+
+# =========================
+# LOOP UTAMA
+# =========================
+while True:
+
+    try:
+        distance = sensor.distance_cm()
+
+        print("Jarak:", distance, "cm")
+
+        # Jika objek dekat
+        if 0 < distance < 150:
+
+            # LED berkedip
+            led.on()
+            sleep(0.1)
+            led.off()
+
+            # Servo gerak 0 derajat
+            servo_angle(0)
+            sleep(0.5)
+
+            # Servo gerak 90 derajat
+            servo_angle(90)
+            sleep(0.5)
+
+        else:
+            led.off()
+
+        sleep(0.2)
+
+    except Exception as e:
+        print("Error:", e)
+        sleep(1)
