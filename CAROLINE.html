@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ESP32 Control</title>
+</head>
+<body style="text-align:center; font-family:Arial; margin-top:50px;">
+
+<h1>ESP32 BLE Control</h1>
+
+<button onclick="connect()">🔌 Connect</button><br><br>
+
+<button onclick="send('on')">ON</button>
+<button onclick="send('off')">OFF</button>
+
+<p id="status">Status: Belum terhubung</p>
+
+<script>
+const SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const CHAR_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+
+let device, characteristic;
+
+async function connect() {
+    try {
+        device = await navigator.bluetooth.requestDevice({
+            filters: [{ namePrefix: "ESP32" }],
+            optionalServices: [SERVICE_UUID]
+        });
+
+        const server = await device.gatt.connect();
+        const service = await server.getPrimaryService(SERVICE_UUID);
+        characteristic = await service.getCharacteristic(CHAR_UUID);
+
+        document.getElementById("status").innerText = "✅ Terhubung ke " + device.name;
+
+    } catch (err) {
+        alert("Gagal koneksi: " + err);
+    }
+}
+
+async function send(data) {
+    if (!characteristic) {
+        alert("Belum connect!");
+        return;
+    }
+
+    const encoder = new TextEncoder();
+    await characteristic.writeValue(encoder.encode(data));
+}
+</script>
+
+</body>
+</html>
