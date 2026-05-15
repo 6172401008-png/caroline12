@@ -1,137 +1,520 @@
-from machine import Pin, PWM
-from hcsr04 import HCSR04
-from time import sleep
-import bluetooth
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ESP32 Distance + Servo Monitor</title>
 
-# =========================
-# LED
-# =========================
-led = Pin(2, Pin.OUT)
-led.off()
+    <style>
 
-# =========================
-# SENSOR JARAK
-# =========================
-sensor = HCSR04(trigger_pin=4, echo_pin=5)
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 50px;
+            background: #f0f0f0;
+        }
 
-# =========================
-# SERVO
-# =========================
-servo = PWM(Pin(26), freq=50)
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            max-width: 500px;
+            margin: auto;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
 
-def servo_angle(angle):
-    duty = int((angle / 180) * 75 + 40)
-    servo.duty(duty)
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
 
-# =========================
-# BLE
-# =========================
-ble = bluetooth.BLE()
-ble.active(True)
+        .jarak-box {
+            margin-bottom: 20px;
+            font-size: 22px;
+        }
 
-UART_SERVICE = bluetooth.UUID("6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
-TX_CHAR = bluetooth.UUID("6E400002-B5A3-F393-E0A9-E50E24DCCA9E")
-RX_CHAR = bluetooth.UUID("6E400003-B5A3-F393-E0A9-E50E24DCCA9E")
+        input {
+            width: 120px;
+            text-align: center;
+            font-size: 22px;
+            padding: 5px;
+        }
 
-services = (
-    UART_SERVICE,
-    (
-        (TX_CHAR, bluetooth.FLAG_READ | bluetooth.FLAG_NOTIFY),
-        (RX_CHAR, bluetooth.FLAG_WRITE),
-    ),
-)
+        button {
 
-((tx_handle, rx_handle),) = ble.gatts_register_services([services])
+            font-size: 18px;
+            padding: 12px 20px;
+            margin: 8px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            transition: 0.3s;
+            color: white;
+        }
 
-name = "ESP32_Caroline"
+        button:active {
+            transform: scale(0.95);
+        }
 
-ble.gap_advertise(
-    100000,
-    b"\x02\x01\x06\x03\x03\xaa\xfe"
-    + bytes([len(name) + 1, 0x09])
-    + name.encode()
-)
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
 
-print("BLE aktif")
-print("Nama BLE:", name)
+        .btn-connect {
+            background: #2196F3;
+        }
 
-conn_handle = None
+        .btn-on {
+            background: #4CAF50;
+        }
 
-# =========================
-# BLE EVENT
-# =========================
-def ble_irq(event, data):
-    global conn_handle
+        .btn-off {
+            background: #f44336;
+        }
 
-    if event == 1:
-        conn_handle = data[0]
-        print("BLE Terhubung")
+        .btn-servo {
+            background: #ff9800;
+        }
 
-    elif event == 2:
-        conn_handle = None
-        print("BLE Terputus")
+        #status {
 
-        ble.gap_advertise(
-            100000,
-            b"\x02\x01\x06\x03\x03\xaa\xfe"
-            + bytes([len(name) + 1, 0x09])
-            + name.encode()
-        )
+            margin: 20px 0;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+        }
 
-    elif event == 3:
-        handle = data[1]
+        .connected {
 
-        if handle == rx_handle:
-            incoming = ble.gatts_read(rx_handle)
-            command = incoming.decode().strip().lower()
+            background: #d4edda;
+            color: #155724;
+        }
 
-            print("Perintah:", command)
+        .disconnected {
 
-            if command == "on":
-                led.on()
+            background: #f8d7da;
+            color: #721c24;
+        }
 
-                if conn_handle is not None:
-                    ble.gatts_notify(conn_handle, tx_handle, b"LED ON")
+    </style>
+</head>
 
-            elif command == "off":
-                led.off()
+<body>
 
-                if conn_handle is not None:
-                    ble.gatts_notify(conn_handle, tx_handle, b"LED OFF")
+<div class="container">
 
-ble.irq(ble_irq)
+    <h1>📏 ESP32 Distance + Servo</h1>
 
-# =========================
-# LOOP UTAMA
-# =========================
-while True:
+    <div class="jarak-box">
 
-    try:
-        distance = sensor.distance_cm()
+        📏 Jarak:
 
-        print("Jarak:", distance, "cm")
+        <input type="text"
+               id="jarakBox"
+               readonly
+               value="--.-">
 
-        # Jika objek dekat
-        if 0 < distance < 150:
+        cm
+    </div>
 
-            # LED berkedip
-            led.on()
-            sleep(0.1)
-            led.off()
+    <div id="status" class="disconnected">
 
-            # Servo gerak 0 derajat
-            servo_angle(0)
-            sleep(0.5)
+        Status: Belum terhubung
+    </div>
 
-            # Servo gerak 90 derajat
-            servo_angle(90)
-            sleep(0.5)
+    <!-- LED -->
+    <button class="btn-on"
+            id="btnOn"
+            disabled>
 
-        else:
-            led.off()
+        🟢 ON
+    </button>
 
-        sleep(0.2)
+    <button class="btn-off"
+            id="btnOff"
+            disabled>
 
-    except Exception as e:
-        print("Error:", e)
-        sleep(1)
+        🔴 OFF
+    </button>
+
+    <br><br>
+
+    <!-- SERVO -->
+    <button class="btn-servo"
+            id="servo0"
+            disabled>
+
+        ↩ Servo 0°
+    </button>
+
+    <button class="btn-servo"
+            id="servo90"
+            disabled>
+
+        ⏺ Servo 90°
+    </button>
+
+    <button class="btn-servo"
+            id="servo180"
+            disabled>
+
+        ↪ Servo 180°
+    </button>
+
+    <br><br>
+
+    <!-- CONNECT -->
+    <button class="btn-connect"
+            id="btnConnect">
+
+        🔌 Hubungkan ke ESP32
+    </button>
+
+</div>
+
+<script>
+
+    // =========================
+    // UUID BLE
+    // =========================
+
+    const SERVICE_UUID =
+        "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+
+    const TX_UUID =
+        "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+
+    const RX_UUID =
+        "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+
+    // =========================
+    // VARIABLE
+    // =========================
+
+    let device = null;
+
+    let txCharacteristic = null;
+
+    let rxCharacteristic = null;
+
+    let connected = false;
+
+    let pollingInterval = null;
+
+    // =========================
+    // ELEMENT
+    // =========================
+
+    const btnConnect =
+        document.getElementById('btnConnect');
+
+    const btnOn =
+        document.getElementById('btnOn');
+
+    const btnOff =
+        document.getElementById('btnOff');
+
+    const servo0 =
+        document.getElementById('servo0');
+
+    const servo90 =
+        document.getElementById('servo90');
+
+    const servo180 =
+        document.getElementById('servo180');
+
+    const statusDiv =
+        document.getElementById('status');
+
+    // =========================
+    // UPDATE UI
+    // =========================
+
+    function updateUI() {
+
+        if (connected) {
+
+            statusDiv.textContent =
+                'Status: ✅ Terhubung ke ESP32';
+
+            statusDiv.className =
+                'connected';
+
+            btnConnect.textContent =
+                '🔌 Putuskan Koneksi';
+
+            btnOn.disabled = false;
+            btnOff.disabled = false;
+
+            servo0.disabled = false;
+            servo90.disabled = false;
+            servo180.disabled = false;
+
+        }
+
+        else {
+
+            statusDiv.textContent =
+                'Status: ❌ Belum terhubung';
+
+            statusDiv.className =
+                'disconnected';
+
+            btnConnect.textContent =
+                '🔌 Hubungkan ke ESP32';
+
+            btnOn.disabled = true;
+            btnOff.disabled = true;
+
+            servo0.disabled = true;
+            servo90.disabled = true;
+            servo180.disabled = true;
+        }
+    }
+
+    // =========================
+    // KIRIM COMMAND
+    // =========================
+
+    async function sendCommand(command) {
+
+        if (!rxCharacteristic || !connected) {
+
+            alert("Belum terhubung ke ESP32!");
+            return;
+        }
+
+        try {
+
+            const encoder =
+                new TextEncoder();
+
+            await rxCharacteristic.writeValue(
+                encoder.encode(command)
+            );
+
+            console.log("Kirim:", command);
+
+        }
+
+        catch (error) {
+
+            console.error(error);
+        }
+    }
+
+    // =========================
+    // TOMBOL LED
+    // =========================
+
+    btnOn.onclick = () => {
+
+        sendCommand("on");
+    };
+
+    btnOff.onclick = () => {
+
+        sendCommand("off");
+    };
+
+    // =========================
+    // TOMBOL SERVO
+    // =========================
+
+    servo0.onclick = () => {
+
+        sendCommand("servo0");
+    };
+
+    servo90.onclick = () => {
+
+        sendCommand("servo90");
+    };
+
+    servo180.onclick = () => {
+
+        sendCommand("servo180");
+    };
+
+    // =========================
+    // CONNECT BLE
+    // =========================
+
+    btnConnect.onclick = async () => {
+
+        // disconnect
+        if (connected && device) {
+
+            if (pollingInterval) {
+
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+
+            try {
+
+                device.gatt.disconnect();
+
+                connected = false;
+
+                txCharacteristic = null;
+                rxCharacteristic = null;
+
+                updateUI();
+
+            }
+
+            catch (error) {
+
+                console.error(error);
+            }
+
+            return;
+        }
+
+        // koneksi baru
+        try {
+
+            device =
+                await navigator.bluetooth.requestDevice({
+
+                    filters: [
+                        { namePrefix: 'ESP32' }
+                    ],
+
+                    optionalServices: [SERVICE_UUID]
+                });
+
+            const server =
+                await device.gatt.connect();
+
+            const service =
+                await server.getPrimaryService(
+                    SERVICE_UUID
+                );
+
+            rxCharacteristic =
+                await service.getCharacteristic(
+                    RX_UUID
+                );
+
+            txCharacteristic =
+                await service.getCharacteristic(
+                    TX_UUID
+                );
+
+            connected = true;
+
+            updateUI();
+
+            console.log(
+                "Terhubung ke:",
+                device.name
+            );
+
+            // =========================
+            // BACA DATA JARAK
+            // =========================
+
+            pollingInterval =
+                setInterval(async () => {
+
+                if (txCharacteristic && connected) {
+
+                    try {
+
+                        const value =
+                            await txCharacteristic.readValue();
+
+                        const decoder =
+                            new TextDecoder();
+
+                        const data =
+                            decoder.decode(value);
+
+                        const jarak =
+                            parseFloat(data);
+
+                        if (!isNaN(jarak)) {
+
+                            document.getElementById(
+                                "jarakBox"
+                            ).value =
+                                jarak.toFixed(2);
+                        }
+
+                    }
+
+                    catch (e) {
+
+                        console.log(e);
+                    }
+                }
+
+            }, 500);
+
+            // auto disconnect
+            device.addEventListener(
+                'gattserverdisconnected',
+
+                () => {
+
+                    connected = false;
+
+                    txCharacteristic = null;
+
+                    rxCharacteristic = null;
+
+                    updateUI();
+
+                    console.log(
+                        'Terputus dari ESP32'
+                    );
+                }
+            );
+
+        }
+
+        catch (error) {
+
+            console.error(
+                'Koneksi gagal:',
+                error
+            );
+
+            alert(
+                'Gagal koneksi: ' +
+                error.message
+            );
+
+            connected = false;
+
+            updateUI();
+        }
+    };
+
+    // =========================
+    // CEK BROWSER
+    // =========================
+
+    if (!navigator.bluetooth) {
+
+        alert(
+            'Browser tidak mendukung Web Bluetooth.\nGunakan Chrome / Edge.'
+        );
+
+        btnConnect.disabled = true;
+    }
+
+    else {
+
+        console.log(
+            'Web Bluetooth didukung'
+        );
+    }
+
+    updateUI();
+
+</script>
+
+</body>
+</html>
