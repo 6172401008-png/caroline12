@@ -9,7 +9,7 @@
 
         body {
 
-            font-family: Arial;
+            font-family: Arial, sans-serif;
             text-align: center;
             background: #f0f0f0;
             padding: 40px;
@@ -28,6 +28,13 @@
         h1 {
 
             margin-bottom: 30px;
+            color: #333;
+        }
+
+        .jarak-box {
+
+            font-size: 28px;
+            margin-bottom: 25px;
         }
 
         input {
@@ -62,8 +69,9 @@
         #status {
 
             margin: 20px;
-            padding: 10px;
-            border-radius: 5px;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 18px;
         }
 
         .connected {
@@ -90,9 +98,10 @@
         📏 ESP32 Distance Servo
     </h1>
 
-    <h2>
+    <!-- TAMPILAN JARAK -->
+    <div class="jarak-box">
 
-        Jarak:
+        📏 Jarak:
 
         <input
             type="text"
@@ -101,30 +110,37 @@
             readonly>
 
         cm
-    </h2>
 
+    </div>
+
+    <!-- STATUS -->
     <div
         id="status"
         class="disconnected">
 
         ❌ Belum Terhubung
+
     </div>
 
+    <!-- TOMBOL CONNECT -->
     <button
         class="connect"
         id="connectBtn">
 
         🔌 Hubungkan ESP32
+
     </button>
 
     <br><br>
 
+    <!-- TOMBOL SERVO -->
     <button
         class="servo"
         id="servo0"
         disabled>
 
         Servo 0°
+
     </button>
 
     <button
@@ -133,6 +149,7 @@
         disabled>
 
         Servo 90°
+
     </button>
 
     <button
@@ -141,6 +158,7 @@
         disabled>
 
         Servo 180°
+
     </button>
 
 </div>
@@ -175,7 +193,7 @@
     let interval = null;
 
     // =========================
-    // ELEMENT
+    // ELEMENT HTML
     // =========================
 
     const connectBtn =
@@ -217,13 +235,13 @@
         if (connected) {
 
             statusDiv.innerHTML =
-                "✅ Terhubung";
+                "✅ Terhubung ke ESP32";
 
             statusDiv.className =
                 "connected";
 
             connectBtn.innerHTML =
-                "❌ Putuskan";
+                "❌ Putuskan Koneksi";
 
             servo0.disabled = false;
             servo90.disabled = false;
@@ -255,17 +273,26 @@
 
         if (!connected) return;
 
-        const encoder =
-            new TextEncoder();
+        try {
 
-        await rxCharacteristic.writeValue(
-            encoder.encode(command)
-        );
+            const encoder =
+                new TextEncoder();
 
-        console.log(
-            "Kirim:",
-            command
-        );
+            await rxCharacteristic.writeValue(
+                encoder.encode(command)
+            );
+
+            console.log(
+                "Kirim:",
+                command
+            );
+
+        }
+
+        catch (error) {
+
+            console.log(error);
+        }
     }
 
     // =========================
@@ -293,7 +320,7 @@
 
     connectBtn.onclick = async () => {
 
-        // disconnect
+        // DISCONNECT
         if (connected && device) {
 
             device.gatt.disconnect();
@@ -307,7 +334,7 @@
             return;
         }
 
-        // connect
+        // CONNECT
         try {
 
             device =
@@ -352,7 +379,7 @@
             );
 
             // =========================
-            // BACA JARAK REALTIME
+            // BACA DATA JARAK
             // =========================
 
             interval = setInterval(
@@ -387,7 +414,7 @@
 
             }, 300);
 
-            // auto disconnect
+            // AUTO DISCONNECT
             device.addEventListener(
                 'gattserverdisconnected',
 
@@ -412,7 +439,7 @@
             console.log(error);
 
             alert(
-                "Gagal koneksi"
+                "Gagal koneksi BLE"
             );
         }
     };
