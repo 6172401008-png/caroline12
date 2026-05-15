@@ -1,182 +1,346 @@
-#include <BLEDevice.h>
-#include <BLEUtils.h>
-#include <BLEServer.h>
+<!DOCTYPE html>
+<html>
 
-#include <ESP32Servo.h>
+<head>
 
-// =========================
-// UUID BLE
-// =========================
+    <title>ESP32 Distance Servo</title>
 
-#define SERVICE_UUID        "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
-#define CHARACTERISTIC_TX  "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
-#define CHARACTERISTIC_RX  "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    <style>
 
-// =========================
-// PIN
-// =========================
+        body {
 
-#define TRIG_PIN 5
-#define ECHO_PIN 18
-
-#define LED_PIN 2
-
-#define SERVO_PIN 13
-
-// =========================
-
-Servo myServo;
-
-BLECharacteristic *txCharacteristic;
-
-float distanceCM;
-
-// =========================
-// HITUNG JARAK
-// =========================
-
-float readDistance() {
-
-    digitalWrite(TRIG_PIN, LOW);
-    delayMicroseconds(2);
-
-    digitalWrite(TRIG_PIN, HIGH);
-    delayMicroseconds(10);
-
-    digitalWrite(TRIG_PIN, LOW);
-
-    long duration =
-        pulseIn(ECHO_PIN, HIGH);
-
-    float distance =
-        duration * 0.034 / 2;
-
-    return distance;
-}
-
-// =========================
-// CALLBACK BLE
-// =========================
-
-class MyCallbacks :
-    public BLECharacteristicCallbacks {
-
-    void onWrite(
-        BLECharacteristic *pCharacteristic
-    ) {
-
-        String rxValue =
-            pCharacteristic->getValue();
-
-        Serial.print("Data diterima: ");
-        Serial.println(rxValue);
-
-        // LED ON
-        if (rxValue == "on") {
-
-            digitalWrite(LED_PIN, HIGH);
+            font-family: Arial;
+            text-align: center;
+            background: #f0f0f0;
+            padding: 40px;
         }
 
-        // LED OFF
-        else if (rxValue == "off") {
+        .box {
 
-            digitalWrite(LED_PIN, LOW);
+            background: white;
+            max-width: 500px;
+            margin: auto;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
         }
 
-        // SERVO 0
-        else if (rxValue == "servo0") {
+        h1 {
 
-            myServo.write(0);
+            margin-bottom: 30px;
         }
 
-        // SERVO 90
-        else if (rxValue == "servo90") {
+        input {
 
-            myServo.write(90);
+            width: 120px;
+            font-size: 28px;
+            text-align: center;
+            padding: 5px;
         }
 
-        // SERVO 180
-        else if (rxValue == "servo180") {
+        button {
 
-            myServo.write(180);
+            padding: 12px 20px;
+            font-size: 18px;
+            margin: 10px;
+            border: none;
+            border-radius: 5px;
+            color: white;
+            cursor: pointer;
+        }
+
+        .connect {
+
+            background: #2196F3;
+        }
+
+        .servo {
+
+            background: #ff9800;
+        }
+
+        #status {
+
+            margin: 20px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        .connected {
+
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .disconnected {
+
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+<div class="box">
+
+    <h1>
+        📏 ESP32 Servo Monitor
+    </h1>
+
+    <h2>
+
+        Jarak:
+
+        <input
+            type="text"
+            id="distance"
+            value="0"
+            readonly>
+
+        cm
+    </h2>
+
+    <div
+        id="status"
+        class="disconnected">
+
+        Belum Terhubung
+    </div>
+
+    <button
+        class="connect"
+        id="connectBtn">
+
+        🔌 Connect BLE
+    </button>
+
+    <br><br>
+
+    <button
+        class="servo"
+        id="servo0"
+        disabled>
+
+        Servo 0°
+    </button>
+
+    <button
+        class="servo"
+        id="servo90"
+        disabled>
+
+        Servo 90°
+    </button>
+
+    <button
+        class="servo"
+        id="servo180"
+        disabled>
+
+        Servo 180°
+    </button>
+
+</div>
+
+<script>
+
+    // UUID
+    const SERVICE_UUID =
+        "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+
+    const TX_UUID =
+        "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+
+    const RX_UUID =
+        "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+
+    let device = null;
+
+    let txCharacteristic = null;
+
+    let rxCharacteristic = null;
+
+    let connected = false;
+
+    const connectBtn =
+        document.getElementById(
+            "connectBtn"
+        );
+
+    const statusDiv =
+        document.getElementById(
+            "status"
+        );
+
+    const distanceBox =
+        document.getElementById(
+            "distance"
+        );
+
+    const servo0 =
+        document.getElementById(
+            "servo0"
+        );
+
+    const servo90 =
+        document.getElementById(
+            "servo90"
+        );
+
+    const servo180 =
+        document.getElementById(
+            "servo180"
+        );
+
+    // =========================
+    // UPDATE UI
+    // =========================
+
+    function updateUI() {
+
+        if (connected) {
+
+            statusDiv.innerHTML =
+                "✅ Terhubung";
+
+            statusDiv.className =
+                "connected";
+
+            servo0.disabled = false;
+            servo90.disabled = false;
+            servo180.disabled = false;
+
+        }
+
+        else {
+
+            statusDiv.innerHTML =
+                "❌ Belum terhubung";
+
+            statusDiv.className =
+                "disconnected";
+
+            servo0.disabled = true;
+            servo90.disabled = true;
+            servo180.disabled = true;
         }
     }
-};
-
-// =========================
-// SETUP
-// =========================
-
-void setup() {
-
-    Serial.begin(115200);
-
-    pinMode(TRIG_PIN, OUTPUT);
-    pinMode(ECHO_PIN, INPUT);
-
-    pinMode(LED_PIN, OUTPUT);
-
-    // setup servo
-    myServo.attach(SERVO_PIN);
-
-    myServo.write(0);
 
     // =========================
-    // BLE
+    // KIRIM COMMAND
     // =========================
 
-    BLEDevice::init("ESP32 Distance");
+    async function sendCommand(command) {
 
-    BLEServer *pServer =
-        BLEDevice::createServer();
+        const encoder =
+            new TextEncoder();
 
-    BLEService *pService =
-        pServer->createService(
-            SERVICE_UUID
+        await rxCharacteristic.writeValue(
+            encoder.encode(command)
         );
+    }
 
-    // TX
-    txCharacteristic =
-        pService->createCharacteristic(
-            CHARACTERISTIC_TX,
-            BLECharacteristic::PROPERTY_READ
-        );
+    // tombol servo
 
-    // RX
-    BLECharacteristic *rxCharacteristic =
-        pService->createCharacteristic(
-            CHARACTERISTIC_RX,
-            BLECharacteristic::PROPERTY_WRITE
-        );
+    servo0.onclick = () => {
 
-    rxCharacteristic->setCallbacks(
-        new MyCallbacks()
-    );
+        sendCommand("servo0");
+    };
 
-    pService->start();
+    servo90.onclick = () => {
 
-    BLEAdvertising *pAdvertising =
-        BLEDevice::getAdvertising();
+        sendCommand("servo90");
+    };
 
-    pAdvertising->start();
+    servo180.onclick = () => {
 
-    Serial.println("BLE siap...");
-}
+        sendCommand("servo180");
+    };
 
-// =========================
-// LOOP
-// =========================
+    // =========================
+    // CONNECT BLE
+    // =========================
 
-void loop() {
+    connectBtn.onclick = async () => {
 
-    distanceCM = readDistance();
+        try {
 
-    String data =
-        String(distanceCM);
+            device =
+                await navigator.bluetooth.requestDevice({
 
-    txCharacteristic->setValue(
-        data.c_str()
-    );
+                    filters: [
+                        {
+                            namePrefix: "ESP32"
+                        }
+                    ],
 
-    delay(500);
-}
+                    optionalServices: [
+                        SERVICE_UUID
+                    ]
+                });
+
+            const server =
+                await device.gatt.connect();
+
+            const service =
+                await server.getPrimaryService(
+                    SERVICE_UUID
+                );
+
+            txCharacteristic =
+                await service.getCharacteristic(
+                    TX_UUID
+                );
+
+            rxCharacteristic =
+                await service.getCharacteristic(
+                    RX_UUID
+                );
+
+            connected = true;
+
+            updateUI();
+
+            // baca jarak realtime
+
+            setInterval(async () => {
+
+                const value =
+                    await txCharacteristic.readValue();
+
+                const decoder =
+                    new TextDecoder();
+
+                const data =
+                    decoder.decode(value);
+
+                const jarak =
+                    parseFloat(data);
+
+                if (!isNaN(jarak)) {
+
+                    distanceBox.value =
+                        jarak.toFixed(2);
+                }
+
+            }, 300);
+
+        }
+
+        catch (error) {
+
+            alert(error);
+
+            console.log(error);
+        }
+    };
+
+    updateUI();
+
+</script>
+
+</body>
+</html>
