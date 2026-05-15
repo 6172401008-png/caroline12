@@ -1,246 +1,60 @@
 <!DOCTYPE html>
 <html>
-
 <head>
-
-    <title>ESP32 Distance Servo</title>
-
-    <style>
-
-        body {
-            font-family: Arial, sans-serif;
-            text-align: center;
-            background: #f0f0f0;
-            padding: 40px;
-        }
-
-        .container {
-            background: white;
-            max-width: 500px;
-            margin: auto;
-            padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-        }
-
-        h1 {
-            margin-bottom: 30px;
-            color: #333;
-        }
-
-        .jarak-box {
-            font-size: 28px;
-            margin-bottom: 25px;
-        }
-
-        input {
-            width: 120px;
-            font-size: 28px;
-            text-align: center;
-            padding: 5px;
-        }
-
-        button {
-            padding: 15px 25px;
-            margin: 10px;
-            font-size: 18px;
-            border: none;
-            border-radius: 10px;
-            cursor: pointer;
-            color: white;
-        }
-
-        .connect {
-            background: #2196F3;
-        }
-
-        .servo {
-            background: #ff9800;
-        }
-
-        #status {
-            margin: 20px;
-            padding: 12px;
-            border-radius: 8px;
-            font-size: 18px;
-        }
-
-        .connected {
-            background: #d4edda;
-            color: #155724;
-        }
-
-        .disconnected {
-            background: #f8d7da;
-            color: #721c24;
-        }
-
-    </style>
-
+    <title>ESP32 BLE Distance</title>
 </head>
 
-<body>
+<body style="text-align:center; font-family:Arial;">
 
-<div class="container">
+<h2>📏 Jarak</h2>
+<input id="distance" value="0" style="font-size:30px;" readonly> cm
 
-    <h1>📏 ESP32 Distance Servo</h1>
+<br><br>
 
-    <div class="jarak-box">
-        📏 Jarak:
-        <input type="text" id="distance" value="0" readonly>
-        cm
-    </div>
-
-    <div id="status" class="disconnected">
-        ❌ Belum Terhubung
-    </div>
-
-    <button class="connect" id="connectBtn">
-        🔌 Hubungkan ESP32
-    </button>
-
-    <br><br>
-
-    <button class="servo" id="servo0" disabled>Servo 0°</button>
-    <button class="servo" id="servo90" disabled>Servo 90°</button>
-    <button class="servo" id="servo180" disabled>Servo 180°</button>
-
-</div>
+<button onclick="connect()">CONNECT</button>
+<button onclick="send('servo0')">0°</button>
+<button onclick="send('servo90')">90°</button>
+<button onclick="send('servo180')">180°</button>
 
 <script>
 
 const SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
-const TX_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
-const RX_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+const TX_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; // notify
+const RX_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // write
 
-let device = null;
-let txCharacteristic = null;
-let rxCharacteristic = null;
-let connected = false;
+let rxChar;
 
-const connectBtn = document.getElementById("connectBtn");
-const statusDiv = document.getElementById("status");
-const distanceBox = document.getElementById("distance");
+async function connect() {
 
-const servo0 = document.getElementById("servo0");
-const servo90 = document.getElementById("servo90");
-const servo180 = document.getElementById("servo180");
+    const device = await navigator.bluetooth.requestDevice({
+        filters: [{ namePrefix: "ESP32" }],
+        optionalServices: [SERVICE_UUID]
+    });
 
-function updateUI() {
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService(SERVICE_UUID);
 
-    if (connected) {
-        statusDiv.innerHTML = "✅ Terhubung ke ESP32";
-        statusDiv.className = "connected";
-        connectBtn.innerHTML = "❌ Putuskan Koneksi";
+    const txChar = await service.getCharacteristic(TX_UUID);
+    rxChar = await service.getCharacteristic(RX_UUID);
 
-        servo0.disabled = false;
-        servo90.disabled = false;
-        servo180.disabled = false;
-    } else {
-        statusDiv.innerHTML = "❌ Belum Terhubung";
-        statusDiv.className = "disconnected";
-        connectBtn.innerHTML = "🔌 Hubungkan ESP32";
+    // ✅ NOTIFICATION
+    await txChar.startNotifications();
 
-        servo0.disabled = true;
-        servo90.disabled = true;
-        servo180.disabled = true;
-    }
+    txChar.addEventListener('characteristicvaluechanged', (event) => {
+
+        const value = new TextDecoder().decode(event.target.value);
+        document.getElementById("distance").value = value;
+
+        console.log("Jarak:", value);
+    });
+
+    console.log("Connected");
 }
 
-// =========================
-// KIRIM COMMAND
-// =========================
-
-async function sendCommand(command) {
-
-    if (!connected) return;
-
-    const encoder = new TextEncoder();
-
-    await rxCharacteristic.writeValue(
-        encoder.encode(command)
-    );
-
-    console.log("Kirim:", command);
+function send(cmd) {
+    if (!rxChar) return;
+    rxChar.writeValue(new TextEncoder().encode(cmd));
 }
-
-// tombol servo
-servo0.onclick = () => sendCommand("servo0");
-servo90.onclick = () => sendCommand("servo90");
-servo180.onclick = () => sendCommand("servo180");
-
-// =========================
-// CONNECT BLE
-// =========================
-
-connectBtn.onclick = async () => {
-
-    if (connected && device) {
-        device.gatt.disconnect();
-        connected = false;
-        updateUI();
-        return;
-    }
-
-    try {
-
-        device = await navigator.bluetooth.requestDevice({
-            filters: [{ namePrefix: "ESP32" }],
-            optionalServices: [SERVICE_UUID]
-        });
-
-        const server = await device.gatt.connect();
-        const service = await server.getPrimaryService(SERVICE_UUID);
-
-        txCharacteristic = await service.getCharacteristic(TX_UUID);
-        rxCharacteristic = await service.getCharacteristic(RX_UUID);
-
-        // =========================
-        // NOTIFICATION (FIX UTAMA)
-        // =========================
-
-        await txCharacteristic.startNotifications();
-
-        txCharacteristic.addEventListener(
-            'characteristicvaluechanged',
-            (event) => {
-
-                const decoder = new TextDecoder();
-                const data = decoder.decode(event.target.value);
-
-                const jarak = parseFloat(data);
-
-                if (!isNaN(jarak)) {
-                    distanceBox.value = jarak.toFixed(2);
-                }
-
-                console.log("Jarak:", data);
-            }
-        );
-
-        connected = true;
-        updateUI();
-
-        console.log("Terhubung:", device.name);
-
-        device.addEventListener(
-            'gattserverdisconnected',
-            () => {
-                connected = false;
-                updateUI();
-                console.log("BLE Terputus");
-            }
-        );
-
-    } catch (error) {
-
-        console.log(error);
-        alert("Gagal koneksi BLE");
-
-    }
-};
-
-updateUI();
 
 </script>
 
