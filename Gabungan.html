@@ -3,15 +3,15 @@
 
 <head>
 
-    <title>ESP32 Servo Monitor</title>
+    <title>ESP32 Distance Servo</title>
 
     <style>
 
         body {
 
             font-family: Arial;
-            background: #f0f0f0;
             text-align: center;
+            background: #f0f0f0;
             padding: 40px;
         }
 
@@ -42,7 +42,7 @@
 
             padding: 15px 25px;
             margin: 10px;
-            font-size: 20px;
+            font-size: 18px;
             border: none;
             border-radius: 10px;
             cursor: pointer;
@@ -148,7 +148,7 @@
 <script>
 
     // =========================
-    // UUID
+    // UUID BLE
     // =========================
 
     const SERVICE_UUID =
@@ -160,6 +160,10 @@
     const RX_UUID =
         "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 
+    // =========================
+    // VARIABLE
+    // =========================
+
     let device = null;
 
     let txCharacteristic = null;
@@ -167,6 +171,8 @@
     let rxCharacteristic = null;
 
     let connected = false;
+
+    let interval = null;
 
     // =========================
     // ELEMENT
@@ -216,6 +222,9 @@
             statusDiv.className =
                 "connected";
 
+            connectBtn.innerHTML =
+                "❌ Putuskan";
+
             servo0.disabled = false;
             servo90.disabled = false;
             servo180.disabled = false;
@@ -229,6 +238,9 @@
             statusDiv.className =
                 "disconnected";
 
+            connectBtn.innerHTML =
+                "🔌 Hubungkan ESP32";
+
             servo0.disabled = true;
             servo90.disabled = true;
             servo180.disabled = true;
@@ -241,11 +253,18 @@
 
     async function sendCommand(command) {
 
+        if (!connected) return;
+
         const encoder =
             new TextEncoder();
 
         await rxCharacteristic.writeValue(
             encoder.encode(command)
+        );
+
+        console.log(
+            "Kirim:",
+            command
         );
     }
 
@@ -274,6 +293,21 @@
 
     connectBtn.onclick = async () => {
 
+        // disconnect
+        if (connected && device) {
+
+            device.gatt.disconnect();
+
+            connected = false;
+
+            clearInterval(interval);
+
+            updateUI();
+
+            return;
+        }
+
+        // connect
         try {
 
             device =
@@ -312,39 +346,74 @@
 
             updateUI();
 
+            console.log(
+                "Terhubung:",
+                device.name
+            );
+
             // =========================
-            // BACA DATA JARAK
+            // BACA JARAK REALTIME
             // =========================
 
-            setInterval(async () => {
+            interval = setInterval(
+                async () => {
 
-                const value =
-                    await txCharacteristic.readValue();
+                try {
 
-                const decoder =
-                    new TextDecoder();
+                    const value =
+                        await txCharacteristic.readValue();
 
-                const data =
-                    decoder.decode(value);
+                    const decoder =
+                        new TextDecoder();
 
-                const jarak =
-                    parseFloat(data);
+                    const data =
+                        decoder.decode(value);
 
-                if (!isNaN(jarak)) {
+                    const jarak =
+                        parseFloat(data);
 
-                    distanceBox.value =
-                        jarak.toFixed(2);
+                    if (!isNaN(jarak)) {
+
+                        distanceBox.value =
+                            jarak.toFixed(2);
+                    }
+
+                }
+
+                catch (e) {
+
+                    console.log(e);
                 }
 
             }, 300);
+
+            // auto disconnect
+            device.addEventListener(
+                'gattserverdisconnected',
+
+                () => {
+
+                    connected = false;
+
+                    clearInterval(interval);
+
+                    updateUI();
+
+                    console.log(
+                        "BLE Terputus"
+                    );
+                }
+            );
 
         }
 
         catch (error) {
 
-            alert(error);
-
             console.log(error);
+
+            alert(
+                "Gagal koneksi"
+            );
         }
     };
 
